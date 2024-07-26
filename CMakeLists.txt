@@ -6,11 +6,20 @@ set(CMAKE_CXX_STANDARD 17)
 # Add llama.cpp as a subdirectory
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/externals/llama.cpp ${CMAKE_CURRENT_BINARY_DIR}/llama.cpp)
 
-# Add your executable with a different name
-add_executable(llama_app src/main.cpp)
+# Set the target name
+set(TARGET llama_app)
 
-# Link llama.cpp to your executable
-target_link_libraries(llama_app PRIVATE llama)
+# Add your executable
+add_executable(${TARGET} src/main.cpp)
 
-# Include llama.cpp headers
-target_include_directories(llama_app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/externals/llama.cpp)
+# Install the target
+install(TARGETS ${TARGET} RUNTIME)
+
+# Link libraries
+target_link_libraries(${TARGET} PRIVATE common llama ${CMAKE_THREAD_LIBS_INIT})
+
+# Include directories
+target_include_directories(${TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/externals/llama.cpp)
+
+# Ensure C++17 is used
+target_compile_features(${TARGET} PRIVATE cxx_std_17)
