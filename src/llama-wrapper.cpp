@@ -114,7 +114,6 @@ class LlamaWrapper::Impl {
     }
 
     size_t n_cur = batch.n_tokens;
-    callback(prompt);
 
     while (n_cur < max_tokens) {
       auto n_vocab = llama_n_vocab(model);
