@@ -156,10 +156,20 @@ class LlamaWrapper::Impl {
   llama_context* ctx = nullptr;
 };
 
-LlamaWrapper& LlamaWrapper::Instance() {
-  static LlamaWrapper instance;
-  return instance;
-}
-
 LlamaWrapper::LlamaWrapper() : pimpl(std::make_unique<Impl>()) {}
 LlamaWrapper::~LlamaWrapper() = default;
+
+LlamaWrapper::LlamaWrapper(LlamaWrapper&&) noexcept = default;
+LlamaWrapper& LlamaWrapper::operator=(LlamaWrapper&&) noexcept = default;
+
+bool LlamaWrapper::Initialize(const std::string& model_path, size_t context_size) {
+  return pimpl->Initialize(model_path, context_size);
+}
+
+std::string LlamaWrapper::RunQuery(const std::string& prompt, size_t max_tokens) {
+  return pimpl->RunQuery(prompt, max_tokens);
+}
+
+void LlamaWrapper::RunQueryStream(const std::string& prompt, size_t max_tokens, const std::function<void(const std::string&)>& callback) {
+  pimpl->RunQueryStream(prompt, max_tokens, callback);
+}

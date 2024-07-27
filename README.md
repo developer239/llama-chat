@@ -43,14 +43,14 @@ target_link_libraries(<your_target> PRIVATE LlamaCPP)
 
 ### Basic Usage
 
-To use the LlamaCPP library, include the header and use the singleton instance of the `LlamaWrapper` class. You can initialize it with the path to your model and a context size, then run queries or stream responses.
+To use the LlamaCPP library, include the header and create an instance of the `LlamaWrapper` class. You can initialize it with the path to your model and a context size, then run queries or stream responses.
 
 ```cpp
 #include "llama-wrapper.h"
 #include <iostream>
 
 int main() {
-    auto& llama = LlamaWrapper::Instance();
+    LlamaWrapper llama;
     if (!llama.Initialize("path/to/model", 80000)) {
         std::cerr << "Failed to initialize the model." << std::endl;
         return 1;
@@ -72,7 +72,7 @@ You can also stream responses by providing a callback function. This is useful f
 #include <iostream>
 
 int main() {
-    auto& llama = LlamaWrapper::Instance();
+    LlamaWrapper llama;
     if (!llama.Initialize("path/to/model", 80000)) {
         std::cerr << "Failed to initialize the model." << std::endl;
         return 1;
@@ -90,11 +90,12 @@ int main() {
 
 ### LlamaWrapper Class
 
-The `LlamaWrapper` class provides methods to interact with language models loaded through llama.cpp. It uses a singleton pattern to ensure only one instance interacts with the underlying resources.
+The `LlamaWrapper` class provides methods to interact with language models loaded through llama.cpp.
 
 #### Public Methods
 
-- `static LlamaWrapper& Instance()`: Returns the singleton instance of the `LlamaWrapper` class.
+- `LlamaWrapper()`: Constructor. Initializes the LlamaWrapper object.
+- `~LlamaWrapper()`: Destructor. Cleans up resources.
 - `bool Initialize(const std::string& model_path, size_t context_size = 80000)`: Initializes the model with the specified path and context size.
 - `std::string RunQuery(const std::string& prompt, size_t max_tokens = 1000)`: Runs a query with the given prompt and returns the result as a string.
 - `void RunQueryStream(const std::string& prompt, size_t max_tokens, const std::function<void(const std::string&)>& callback)`: Streams the response to the given prompt, invoking the callback function with each piece of the response.
