@@ -10,16 +10,19 @@ static void print_usage(int argc, char ** argv, const gpt_params & params) {
   gpt_params_print_usage(argc, argv, params);
 
   LOG_TEE("\nexample usage:\n");
-  LOG_TEE("\n    %s -m model.gguf -p \"Hello my name is\" -n 32\n", argv[0]);
+  LOG_TEE("\n    %s -m model.gguf -p \"W\" -n 32\n", argv[0]);
   LOG_TEE("\n");
 }
 
 int main(int argc, char ** argv) {
   gpt_params params;
 
-  params.model = "/path/to/models/mistral-7b-v0.1.Q4_K_M.gguf";  // Replace with your model path
-  params.prompt = "Hello my name is";
-  params.n_predict = 32;
+
+  params.model = "../models/Meta-Llama-3.1-8B-Instruct-Q3_K_S.gguf";
+//  params.model = "../models/Meta-Llama-3.1-8B-Instruct-Q4_K_S.gguf";
+  params.prompt = "How do I write hello world in javascript?";
+//  params.n_predict = 32; // initial
+  params.n_predict = 1000;
 
   if (!gpt_params_parse(argc, argv, params)) {
     print_usage(argc, argv, params);
@@ -48,6 +51,9 @@ int main(int argc, char ** argv) {
   // initialize the context
 
   llama_context_params ctx_params = llama_context_params_from_gpt_params(params);
+
+  // ctx_params.n_ctx = 131072; // default
+  ctx_params.n_ctx = 80000;
 
   llama_context * ctx = llama_new_context_with_model(model, ctx_params);
 
