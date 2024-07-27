@@ -44,22 +44,29 @@ class LlamaWrapper::Impl {
     if (!ctx || !model) throw std::runtime_error("Model not initialized");
 
     std::vector<llama_token> tokens_list = llama_tokenize(ctx, prompt, true);
+    if (tokens_list.size() + max_tokens > llama_n_ctx(ctx)) {
+      throw std::runtime_error("Request exceeds model's context size");
+    }
 
     llama_batch batch = llama_batch_init(512, 0, 1);
     for (size_t i = 0; i < tokens_list.size(); ++i) {
       llama_batch_add(batch, tokens_list[i], i, { 0 }, false);
     }
 
+    batch.logits[batch.n_tokens - 1] = true;  // Ensure logits for last token
     if (llama_decode(ctx, batch) != 0) {
       throw std::runtime_error("llama_decode() failed");
     }
 
-    std::string result = prompt;
+    std::string result;
     size_t n_cur = batch.n_tokens;
 
-    while (n_cur <= max_tokens) {
+    while (n_cur < max_tokens) {
       auto n_vocab = llama_n_vocab(model);
       auto* logits = llama_get_logits_ith(ctx, batch.n_tokens - 1);
+      if (!logits) {
+        throw std::runtime_error("Failed to get logits");
+      }
 
       std::vector<llama_token_data> candidates;
       candidates.reserve(n_vocab);
@@ -75,7 +82,6 @@ class LlamaWrapper::Impl {
       }
 
       result += llama_token_to_piece(ctx, new_token_id);
-
       llama_batch_clear(batch);
       llama_batch_add(batch, new_token_id, n_cur, { 0 }, true);
       n_cur += 1;
@@ -93,12 +99,16 @@ class LlamaWrapper::Impl {
     if (!ctx || !model) throw std::runtime_error("Model not initialized");
 
     std::vector<llama_token> tokens_list = llama_tokenize(ctx, prompt, true);
+    if (tokens_list.size() + max_tokens > llama_n_ctx(ctx)) {
+      throw std::runtime_error("Request exceeds model's context size");
+    }
 
     llama_batch batch = llama_batch_init(512, 0, 1);
     for (size_t i = 0; i < tokens_list.size(); ++i) {
       llama_batch_add(batch, tokens_list[i], i, { 0 }, false);
     }
 
+    batch.logits[batch.n_tokens - 1] = true;  // Ensure logits for last token
     if (llama_decode(ctx, batch) != 0) {
       throw std::runtime_error("llama_decode() failed");
     }
@@ -106,9 +116,12 @@ class LlamaWrapper::Impl {
     size_t n_cur = batch.n_tokens;
     callback(prompt);
 
-    while (n_cur <= max_tokens) {
+    while (n_cur < max_tokens) {
       auto n_vocab = llama_n_vocab(model);
       auto* logits = llama_get_logits_ith(ctx, batch.n_tokens - 1);
+      if (!logits) {
+        throw std::runtime_error("Failed to get logits");
+      }
 
       std::vector<llama_token_data> candidates;
       candidates.reserve(n_vocab);
