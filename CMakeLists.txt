@@ -1,25 +1,33 @@
 cmake_minimum_required(VERSION 3.24)
-project(llama_project)
+project(LlamaCPP VERSION 1.0.0)
 
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Add llama.cpp as a subdirectory
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/externals/llama.cpp ${CMAKE_CURRENT_BINARY_DIR}/llama.cpp)
+set(LIB_NAME LlamaCPP)
 
-# Set the target name
-set(TARGET llama_app)
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/externals/llama.cpp/CMakeLists.txt")
+    message(FATAL_ERROR "The llama.cpp submodule is missing. Please run 'git submodule update --init --recursive'")
+endif()
 
-# Add your executable
-add_executable(${TARGET} src/main.cpp)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/externals/llama.cpp)
 
-# Install the target
-install(TARGETS ${TARGET} RUNTIME)
+set(SOURCES
+        src/llama-wrapper.cpp
+        src/llama-wrapper.h
+)
 
-# Link libraries
-target_link_libraries(${TARGET} PRIVATE common llama ${CMAKE_THREAD_LIBS_INIT})
+add_library(${LIB_NAME} STATIC ${SOURCES})
 
-# Include directories
-target_include_directories(${TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/externals/llama.cpp)
+target_link_libraries(${LIB_NAME} PRIVATE llama common ${CMAKE_THREAD_LIBS_INIT})
 
-# Ensure C++17 is used
-target_compile_features(${TARGET} PRIVATE cxx_std_17)
+target_include_directories(${LIB_NAME}
+        PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/externals/llama.cpp
+)
+
+install(TARGETS ${LIB_NAME} DESTINATION lib)
+install(FILES src/llama-wrapper.h DESTINATION include)
