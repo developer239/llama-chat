@@ -21,7 +21,7 @@ LlamaCPP is a C++ library designed for running language models using the [llama.
 First, add this library as a submodule in your project:
 
 ```bash
-$ git submodule add https://github.com/your-org/llama-cpp externals/llama-cpp
+$ git submodule add https://github.com/developer239/llama-wrapped-cmake externals/llama-cpp
 ```
 
 Load the module's dependencies:
