@@ -26,21 +26,19 @@ class LlamaWrapper::Impl {
     llama_model_params model_params = llama_model_params_from_gpt_params(params);
     model = llama_load_model_from_file(params.model.c_str(), model_params);
     if (!model) {
-      std::cerr << "Error: unable to load model from " << model_path << std::endl;
-      return false;
+      throw std::runtime_error("Error: unable to load model from " + model_path);
     }
 
     llama_context_params ctx_params = llama_context_params_from_gpt_params(params);
     ctx = llama_new_context_with_model(model, ctx_params);
     if (!ctx) {
-      std::cerr << "Error: failed to create the llama_context" << std::endl;
       llama_free_model(model);
-      return false;
+      throw std::runtime_error("Error: failed to create the llama_context");
     }
     return true;
   }
 
-  std::string RunQuery(const std::string& prompt, size_t max_tokens) {
+  std::string RunQuery(const std::string& prompt, size_t max_tokens) const {
     if (!ctx || !model) throw std::runtime_error("Model not initialized");
 
     std::vector<llama_token> tokens_list = llama_tokenize(ctx, prompt, true);
@@ -95,7 +93,7 @@ class LlamaWrapper::Impl {
     return result;
   }
 
-  void RunQueryStream(const std::string& prompt, size_t max_tokens, const std::function<void(const std::string&)>& callback) {
+  void RunQueryStream(const std::string& prompt, size_t max_tokens, const std::function<void(const std::string&)>& callback) const {
     if (!ctx || !model) throw std::runtime_error("Model not initialized");
 
     std::vector<llama_token> tokens_list = llama_tokenize(ctx, prompt, true);
@@ -158,17 +156,14 @@ class LlamaWrapper::Impl {
 LlamaWrapper::LlamaWrapper() : pimpl(std::make_unique<Impl>()) {}
 LlamaWrapper::~LlamaWrapper() = default;
 
-LlamaWrapper::LlamaWrapper(LlamaWrapper&&) noexcept = default;
-LlamaWrapper& LlamaWrapper::operator=(LlamaWrapper&&) noexcept = default;
-
 bool LlamaWrapper::Initialize(const std::string& model_path, size_t context_size) {
   return pimpl->Initialize(model_path, context_size);
 }
 
-std::string LlamaWrapper::RunQuery(const std::string& prompt, size_t max_tokens) {
+std::string LlamaWrapper::RunQuery(const std::string& prompt, size_t max_tokens) const {
   return pimpl->RunQuery(prompt, max_tokens);
 }
 
-void LlamaWrapper::RunQueryStream(const std::string& prompt, size_t max_tokens, const std::function<void(const std::string&)>& callback) {
+void LlamaWrapper::RunQueryStream(const std::string& prompt, size_t max_tokens, const std::function<void(const std::string&)>& callback) const {
   pimpl->RunQueryStream(prompt, max_tokens, callback);
 }
