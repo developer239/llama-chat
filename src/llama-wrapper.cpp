@@ -1,11 +1,11 @@
 #include "llama-wrapper.h"
+
 #include "common.h"
+#include "llama.h"
 
 class LlamaWrapper::Impl {
  public:
-  Impl() {
-    llama_backend_init();
-  }
+  Impl() { llama_backend_init(); }
 
   ~Impl() {
     if (ctx) llama_free(ctx);
@@ -13,7 +13,9 @@ class LlamaWrapper::Impl {
     llama_backend_free();
   }
 
-  bool InitializeModel(const std::string& model_path, const ModelParams& params) {
+  bool InitializeModel(
+      const std::string& model_path, const ModelParams& params
+  ) {
     llama_model_params model_params = llama_model_default_params();
     model_params.n_gpu_layers = params.n_gpu_layers;
     model_params.vocab_only = params.vocab_only;
@@ -42,29 +44,37 @@ class LlamaWrapper::Impl {
     return true;
   }
 
-  std::vector<llama_token> Encode(const std::string& text, bool add_bos) const {
-    return llama_tokenize(ctx, text, add_bos);
+  std::vector<LlamaToken> Encode(const std::string& text, bool add_bos) const {
+    auto llama_tokens = llama_tokenize(ctx, text, add_bos);
+    std::vector<LlamaToken> tokens;
+    for (auto token : llama_tokens) {
+      tokens.emplace_back(token);
+    }
+    return tokens;
   }
 
-  std::string Decode(const std::vector<llama_token>& tokens) const {
+  std::string Decode(const std::vector<LlamaToken>& tokens) const {
     std::string result;
     for (const auto& token : tokens) {
-      result += llama_token_to_piece(ctx, token);
+      result += llama_token_to_piece(ctx, token.token_id);
     }
     return result;
   }
 
-  llama_token TokenBos() const { return llama_token_bos(model); }
-  llama_token TokenEos() const { return llama_token_eos(model); }
-  llama_token TokenNl() const { return llama_token_nl(model); }
+  LlamaToken TokenBos() const { return LlamaToken(llama_token_bos(model)); }
+  LlamaToken TokenEos() const { return LlamaToken(llama_token_eos(model)); }
+  LlamaToken TokenNl() const { return LlamaToken(llama_token_nl(model)); }
 
-  std::string RunQuery(const std::string& prompt, const SamplingParams& params, bool add_bos = true) const {
-    std::vector<llama_token> tokens = Encode(prompt, add_bos);
+  std::string RunQuery(
+      const std::string& prompt, const SamplingParams& params,
+      bool add_bos = true
+  ) const {
+    auto tokens = Encode(prompt, add_bos);
     std::string result;
 
     llama_batch batch = llama_batch_init(params.max_tokens, 0, 1);
     for (size_t i = 0; i < tokens.size(); ++i) {
-      llama_batch_add(batch, tokens[i], i, { 0 }, false);
+      llama_batch_add(batch, tokens[i].token_id, i, {0}, false);
     }
 
     if (llama_decode(ctx, batch) != 0) {
@@ -73,12 +83,12 @@ class LlamaWrapper::Impl {
 
     size_t n_cur = batch.n_tokens;
     while (n_cur < params.max_tokens) {
-      llama_token new_token_id = SampleToken(params);
-      if (llama_token_is_eog(model, new_token_id)) break;
+      auto new_token = SampleToken(params);
+      if (llama_token_is_eog(model, new_token.token_id)) break;
 
-      result += llama_token_to_piece(ctx, new_token_id);
+      result += llama_token_to_piece(ctx, new_token.token_id);
       llama_batch_clear(batch);
-      llama_batch_add(batch, new_token_id, n_cur, { 0 }, true);
+      llama_batch_add(batch, new_token.token_id, n_cur, {0}, true);
       n_cur += 1;
 
       if (llama_decode(ctx, batch) != 0) {
@@ -90,12 +100,16 @@ class LlamaWrapper::Impl {
     return result;
   }
 
-  void RunQueryStream(const std::string& prompt, const SamplingParams& params, const std::function<void(const std::string&)>& callback, bool add_bos = true) const {
-    std::vector<llama_token> tokens = Encode(prompt, add_bos);
+  void RunQueryStream(
+      const std::string& prompt, const SamplingParams& params,
+      const std::function<void(const std::string&)>& callback,
+      bool add_bos = true
+  ) const {
+    auto tokens = Encode(prompt, add_bos);
 
     llama_batch batch = llama_batch_init(params.max_tokens, 0, 1);
     for (size_t i = 0; i < tokens.size(); ++i) {
-      llama_batch_add(batch, tokens[i], i, { 0 }, false);
+      llama_batch_add(batch, tokens[i].token_id, i, {0}, false);
     }
 
     if (llama_decode(ctx, batch) != 0) {
@@ -104,14 +118,14 @@ class LlamaWrapper::Impl {
 
     size_t n_cur = batch.n_tokens;
     while (n_cur < params.max_tokens) {
-      llama_token new_token_id = SampleToken(params);
-      if (llama_token_is_eog(model, new_token_id)) break;
+      auto new_token = SampleToken(params);
+      if (llama_token_is_eog(model, new_token.token_id)) break;
 
-      std::string piece = llama_token_to_piece(ctx, new_token_id);
+      std::string piece = llama_token_to_piece(ctx, new_token.token_id);
       callback(piece);
 
       llama_batch_clear(batch);
-      llama_batch_add(batch, new_token_id, n_cur, { 0 }, true);
+      llama_batch_add(batch, new_token.token_id, n_cur, {0}, true);
       n_cur += 1;
 
       if (llama_decode(ctx, batch) != 0) {
@@ -126,7 +140,7 @@ class LlamaWrapper::Impl {
   llama_model* model = nullptr;
   llama_context* ctx = nullptr;
 
-  llama_token SampleToken(const SamplingParams& params) const {
+  LlamaToken SampleToken(const SamplingParams& params) const {
     auto logits = llama_get_logits(ctx);
     auto n_vocab = llama_n_vocab(model);
 
@@ -134,17 +148,27 @@ class LlamaWrapper::Impl {
     candidates.reserve(n_vocab);
 
     for (llama_token token_id = 0; token_id < n_vocab; token_id++) {
-      candidates.emplace_back(llama_token_data{ token_id, logits[token_id], 0.0f });
+      candidates.emplace_back(llama_token_data{token_id, logits[token_id], 0.0f}
+      );
     }
 
-    llama_token_data_array candidates_p = { candidates.data(), candidates.size(), false };
+    llama_token_data_array candidates_p = {
+        candidates.data(),
+        candidates.size(),
+        false
+    };
 
     if (!params.repeat_penalty_tokens.empty()) {
+      std::vector<llama_token> penalty_tokens;
+      for (const auto& token : params.repeat_penalty_tokens) {
+        penalty_tokens.push_back(token.token_id);
+      }
+
       llama_sample_repetition_penalties(
           ctx,
           &candidates_p,
-          params.repeat_penalty_tokens.data(),
-          params.repeat_penalty_tokens.size(),
+          penalty_tokens.data(),
+          penalty_tokens.size(),
           params.repeat_penalty,
           params.frequency_penalty,
           params.presence_penalty
@@ -155,7 +179,7 @@ class LlamaWrapper::Impl {
     llama_sample_top_p(ctx, &candidates_p, params.top_p, 1);
     llama_sample_temp(ctx, &candidates_p, params.temperature);
 
-    return llama_sample_token(ctx, &candidates_p);
+    return LlamaToken(llama_sample_token(ctx, &candidates_p));
   }
 };
 
@@ -163,7 +187,9 @@ class LlamaWrapper::Impl {
 LlamaWrapper::LlamaWrapper() : pimpl(std::make_unique<Impl>()) {}
 LlamaWrapper::~LlamaWrapper() = default;
 
-bool LlamaWrapper::InitializeModel(const std::string& model_path, const ModelParams& params) {
+bool LlamaWrapper::InitializeModel(
+    const std::string& model_path, const ModelParams& params
+) {
   return pimpl->InitializeModel(model_path, params);
 }
 
@@ -171,22 +197,29 @@ bool LlamaWrapper::InitializeContext(const ContextParams& params) {
   return pimpl->InitializeContext(params);
 }
 
-std::vector<llama_token> LlamaWrapper::Encode(const std::string& text, bool add_bos) const {
+std::vector<LlamaToken> LlamaWrapper::Encode(
+    const std::string& text, bool add_bos
+) const {
   return pimpl->Encode(text, add_bos);
 }
 
-std::string LlamaWrapper::Decode(const std::vector<llama_token>& tokens) const {
+std::string LlamaWrapper::Decode(const std::vector<LlamaToken>& tokens) const {
   return pimpl->Decode(tokens);
 }
 
-llama_token LlamaWrapper::TokenBos() const { return pimpl->TokenBos(); }
-llama_token LlamaWrapper::TokenEos() const { return pimpl->TokenEos(); }
-llama_token LlamaWrapper::TokenNl() const { return pimpl->TokenNl(); }
+LlamaToken LlamaWrapper::TokenBos() const { return pimpl->TokenBos(); }
+LlamaToken LlamaWrapper::TokenEos() const { return pimpl->TokenEos(); }
+LlamaToken LlamaWrapper::TokenNl() const { return pimpl->TokenNl(); }
 
-std::string LlamaWrapper::RunQuery(const std::string& prompt, const SamplingParams& params, bool add_bos) const {
+std::string LlamaWrapper::RunQuery(
+    const std::string& prompt, const SamplingParams& params, bool add_bos
+) const {
   return pimpl->RunQuery(prompt, params, add_bos);
 }
 
-void LlamaWrapper::RunQueryStream(const std::string& prompt, const SamplingParams& params, const std::function<void(const std::string&)>& callback, bool add_bos) const {
+void LlamaWrapper::RunQueryStream(
+    const std::string& prompt, const SamplingParams& params,
+    const std::function<void(const std::string&)>& callback, bool add_bos
+) const {
   pimpl->RunQueryStream(prompt, params, callback, add_bos);
 }

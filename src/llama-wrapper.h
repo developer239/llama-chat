@@ -1,12 +1,17 @@
 // llama-wrapper.h
 #pragma once
 
-#include "llama.h"
-
 #include <string>
 #include <memory>
 #include <functional>
 #include <vector>
+
+struct LlamaToken {
+  int token_id;
+
+  LlamaToken(int id = 0) : token_id(id) {}
+};
+
 
 struct ModelParams {
   int n_gpu_layers = 0;
@@ -31,7 +36,7 @@ struct SamplingParams {
   float repeat_penalty = 1.1f;
   float frequency_penalty = 0.0f;
   float presence_penalty = 0.0f;
-  std::vector<llama_token> repeat_penalty_tokens;
+  std::vector<LlamaToken> repeat_penalty_tokens;
 };
 
 class LlamaWrapper {
@@ -52,11 +57,11 @@ class LlamaWrapper {
   bool InitializeContext(const ContextParams& params);
 
   // Tokenization and Encoding
-  std::vector<llama_token> Encode(const std::string& text, bool add_bos = true) const;
-  std::string Decode(const std::vector<llama_token>& tokens) const;
-  llama_token TokenBos() const;
-  llama_token TokenEos() const;
-  llama_token TokenNl() const;
+  std::vector<LlamaToken> Encode(const std::string& text, bool add_bos = true) const;
+  std::string Decode(const std::vector<LlamaToken>& tokens) const;
+  LlamaToken TokenBos() const;
+  LlamaToken TokenEos() const;
+  LlamaToken TokenNl() const;
 
   // Evaluation and Sampling
   std::string RunQuery(const std::string& prompt, const SamplingParams& params, bool add_bos = true) const;

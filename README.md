@@ -139,26 +139,66 @@ The `LlamaWrapper` class provides methods to interact with language models loade
 #### Structs
 
 - `ModelParams`: Parameters for model initialization.
-    - `n_gpu_layers` (int): Number of layers to offload to GPU. Set to 0 for CPU-only.
-    - `vocab_only` (bool): Only load the vocabulary, no weights. It's useful when you only need to perform tokenization (converting text to token IDs) but don't need to generate text or perform inference. This significantly reduces memory usage and loading time.
-    - `use_mmap` (bool): Use memory mapping for faster loading.
-    - `use_mlock` (bool): Force system to keep model in RAM.
+  - `n_gpu_layers` (int): Number of layers to offload to GPU. Set to 0 for CPU-only.
+    - Default: 0 (CPU-only)
+    - Higher values offload more layers to GPU, potentially increasing performance but requiring more GPU memory.
+  - `vocab_only` (bool): Only load the vocabulary, no weights.
+    - Default: false
+    - When true, it's useful for tokenization tasks, significantly reducing memory usage and loading time.
+  - `use_mmap` (bool): Use memory mapping for faster loading.
+    - Default: true
+    - Enables faster model loading but may use more virtual memory.
+  - `use_mlock` (bool): Force system to keep model in RAM.
+    - Default: false
+    - When true, prevents the model from being swapped out, potentially improving performance but increasing memory pressure.
 
 - `ContextParams`: Parameters for context initialization.
-    - `n_ctx` (size_t): Size of the context window (in tokens).
-    - `n_threads` (int): Number of threads to use for computation.
-    - `n_batch` (int): Number of tokens to process in parallel.
-    - `logits_all` (bool): Return logits for all tokens in the context.
-    - `embedding` (bool): Embed input text (not used for text generation).
+  - `n_ctx` (size_t): Size of the context window (in tokens).
+    - Default: 4096
+    - Larger values allow for longer context but require more memory.
+  - `n_threads` (int): Number of threads to use for computation.
+    - Default: 6
+    - Higher values may improve performance on multi-core systems but can lead to diminishing returns.
+  - `n_batch` (int): Number of tokens to process in parallel.
+    - Default: 512
+    - Larger values may improve performance but require more memory.
+  - `logits_all` (bool): Return logits for all tokens in the context.
+    - Default: false
+    - When true, provides more detailed output but increases memory usage and computation time.
+  - `embedding` (bool): Embed input text (not used for text generation).
+    - Default: false
+    - When true, generates embeddings instead of continuing text.
 
 - `SamplingParams`: Parameters for text generation sampling.
-    - `max_tokens` (size_t): Maximum number of tokens to generate.
-    - `temperature` (float): Controls randomness in generation. Lower values make the model more deterministic.
-    - `top_k` (int32_t): Limits sampling to the k most likely tokens. Lower values (e.g., 10-50) tend to produce more focused and deterministic outputs. Higher values (e.g., 100-1000) allow for more diverse and potentially creative outputs, but may also introduce more errors or irrelevant content. Setting top_k to a very high value (or the vocabulary size) effectively disables top-k sampling.
-    - `top_p` (float): Limits sampling to a cumulative probability. Lower values (e.g., 0.1-0.3) make the output more focused and conservative. Higher values (e.g., 0.7-0.9) allow for more diversity but may lead to less coherent text. Setting top_p to 1.0 effectively disables top-p sampling.
-    - `repeat_penalty` (float): Penalty for repeating tokens.
-    - `frequency_penalty` (float): Penalty based on token frequency in the generated text.
-    - `presence_penalty` (float): Penalty for tokens already present in the generated text.
-    - `repeat_penalty_tokens` (std::vector<llama_token>): Tokens to consider for repeat penalty.
+  - `max_tokens` (size_t): Maximum number of tokens to generate.
+    - Default: 1000
+    - Higher values allow for longer generated text.
+  - `temperature` (float): Controls randomness in generation.
+    - Default: 0.8
+    - Lower values (e.g., 0.2-0.5) make output more deterministic and focused.
+    - Higher values (e.g., 1.0-1.5) increase randomness and creativity.
+  - `top_k` (int32_t): Limits sampling to the k most likely tokens.
+    - Default: 45
+    - Lower values (e.g., 10-50) produce more focused outputs.
+    - Higher values (e.g., 100-1000) allow for more diversity.
+    - Set to 0 or vocabulary size to disable.
+  - `top_p` (float): Limits sampling to a cumulative probability.
+    - Default: 0.95
+    - Lower values (e.g., 0.1-0.3) make output more focused and conservative.
+    - Higher values (e.g., 0.7-0.9) allow for more diversity.
+    - Set to 1.0 to disable.
+  - `repeat_penalty` (float): Penalty for repeating tokens.
+    - Default: 1.1
+    - Higher values (e.g., 1.2-1.5) more strongly discourage repetition.
+    - Set to 1.0 to disable.
+  - `frequency_penalty` (float): Penalty based on token frequency in generated text.
+    - Default: 0.0 (disabled)
+    - Positive values discourage frequent tokens, negative values encourage them.
+  - `presence_penalty` (float): Penalty for tokens already present in generated text.
+    - Default: 0.0 (disabled)
+    - Positive values discourage tokens already present, negative values encourage them.
+  - `repeat_penalty_tokens` (std::vector<llama_token>): Tokens to consider for repeat penalty.
+    - Default: empty vector
+    - Specifies which tokens to apply the repeat penalty to.
 
 These structs allow fine-grained control over model initialization, context setup, and text generation. Adjust these parameters to optimize performance and output quality for your specific use case.
