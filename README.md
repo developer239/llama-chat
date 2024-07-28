@@ -54,7 +54,7 @@ int main() {
     LlamaWrapper llama;
     
     ModelParams model_params;
-    model_params.n_gpu_layers = 1;  // Use 1 GPU layer
+    model_params.n_gpu_layers = 1;  // M1 MacPro has 32 GPU Cores (run: `system_profiler SPDisplaysDataType`)
     
     if (!llama.InitializeModel("path/to/model", model_params)) {
         std::cerr << "Failed to initialize the model." << std::endl;
@@ -62,13 +62,14 @@ int main() {
     }
     
     ContextParams ctx_params;
-    ctx_params.n_ctx = 2048;  // Set context size to 2048
+    ctx_params.n_ctx = 2048;  // Maximum is 128k
     
     if (!llama.InitializeContext(ctx_params)) {
         std::cerr << "Failed to initialize the context." << std::endl;
         return 1;
     }
 
+    // see Structs section to learn about these parameters
     SamplingParams sampling_params;
     sampling_params.temperature = 0.7f;
     sampling_params.top_k = 50;
@@ -95,6 +96,7 @@ int main() {
     
     // Initialize model and context as in the previous example
 
+    // see Structs section to learn about these parameters
     SamplingParams sampling_params;
     sampling_params.temperature = 0.8f;
     sampling_params.max_tokens = 1000;
@@ -170,7 +172,7 @@ The `LlamaWrapper` class provides methods to interact with language models loade
     - When true, generates embeddings instead of continuing text.
 
 - `SamplingParams`: Parameters for text generation sampling.
-  - `max_tokens` (size_t): Maximum number of tokens to generate.
+  - `max_tokens` (size_t): Maximum number of tokens to generate. Right now the response will always have this length even if you get answer before reaching this limit.
     - Default: 1000
     - Higher values allow for longer generated text.
   - `temperature` (float): Controls randomness in generation.
