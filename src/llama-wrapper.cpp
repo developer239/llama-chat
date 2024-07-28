@@ -1,10 +1,5 @@
 #include "llama-wrapper.h"
 #include "common.h"
-#include "llama.h"
-
-#include <vector>
-#include <stdexcept>
-#include <iostream>
 
 class LlamaWrapper::Impl {
  public:
@@ -18,73 +13,75 @@ class LlamaWrapper::Impl {
     llama_backend_free();
   }
 
-  bool Initialize(const std::string& model_path, size_t context_size) {
-    gpt_params params;
-    params.model = model_path;
-    params.n_ctx = context_size;
+  bool InitializeModel(const std::string& model_path, const ModelParams& params) {
+    llama_model_params model_params = llama_model_default_params();
+    model_params.n_gpu_layers = params.n_gpu_layers;
+    model_params.vocab_only = params.vocab_only;
+    model_params.use_mmap = params.use_mmap;
+    model_params.use_mlock = params.use_mlock;
 
-    llama_model_params model_params = llama_model_params_from_gpt_params(params);
-    model = llama_load_model_from_file(params.model.c_str(), model_params);
+    model = llama_load_model_from_file(model_path.c_str(), model_params);
     if (!model) {
-      throw std::runtime_error("Error: unable to load model from " + model_path);
-    }
-
-    llama_context_params ctx_params = llama_context_params_from_gpt_params(params);
-    ctx = llama_new_context_with_model(model, ctx_params);
-    if (!ctx) {
-      llama_free_model(model);
-      throw std::runtime_error("Error: failed to create the llama_context");
+      throw std::runtime_error("Failed to load model from " + model_path);
     }
     return true;
   }
 
-  std::string RunQuery(const std::string& prompt, size_t max_tokens) const {
-    if (!ctx || !model) throw std::runtime_error("Model not initialized");
+  bool InitializeContext(const ContextParams& params) {
+    llama_context_params ctx_params = llama_context_default_params();
+    ctx_params.n_ctx = params.n_ctx;
+    ctx_params.n_threads = params.n_threads;
+    ctx_params.n_batch = params.n_batch;
+    ctx_params.logits_all = params.logits_all;
+    ctx_params.embeddings = params.embedding;
 
-    std::vector<llama_token> tokens_list = llama_tokenize(ctx, prompt, true);
-    if (tokens_list.size() + max_tokens > llama_n_ctx(ctx)) {
-      throw std::runtime_error("Request exceeds model's context size");
+    ctx = llama_new_context_with_model(model, ctx_params);
+    if (!ctx) {
+      throw std::runtime_error("Failed to create the llama_context");
+    }
+    return true;
+  }
+
+  std::vector<llama_token> Encode(const std::string& text, bool add_bos) const {
+    return llama_tokenize(ctx, text, add_bos);
+  }
+
+  std::string Decode(const std::vector<llama_token>& tokens) const {
+    std::string result;
+    for (const auto& token : tokens) {
+      result += llama_token_to_piece(ctx, token);
+    }
+    return result;
+  }
+
+  llama_token TokenBos() const { return llama_token_bos(model); }
+  llama_token TokenEos() const { return llama_token_eos(model); }
+  llama_token TokenNl() const { return llama_token_nl(model); }
+
+  std::string RunQuery(const std::string& prompt, const SamplingParams& params, bool add_bos = true) const {
+    std::vector<llama_token> tokens = Encode(prompt, add_bos);
+    std::string result;
+
+    llama_batch batch = llama_batch_init(params.max_tokens, 0, 1);
+    for (size_t i = 0; i < tokens.size(); ++i) {
+      llama_batch_add(batch, tokens[i], i, { 0 }, false);
     }
 
-    llama_batch batch = llama_batch_init(512, 0, 1);
-    for (size_t i = 0; i < tokens_list.size(); ++i) {
-      llama_batch_add(batch, tokens_list[i], i, { 0 }, false);
-    }
-
-    batch.logits[batch.n_tokens - 1] = true;  // Ensure logits for last token
     if (llama_decode(ctx, batch) != 0) {
       throw std::runtime_error("llama_decode() failed");
     }
 
-    std::string result;
     size_t n_cur = batch.n_tokens;
-
-    while (n_cur < max_tokens) {
-      auto n_vocab = llama_n_vocab(model);
-      auto* logits = llama_get_logits_ith(ctx, batch.n_tokens - 1);
-      if (!logits) {
-        throw std::runtime_error("Failed to get logits");
-      }
-
-      std::vector<llama_token_data> candidates;
-      candidates.reserve(n_vocab);
-      for (llama_token token_id = 0; token_id < n_vocab; ++token_id) {
-        candidates.emplace_back(llama_token_data{ token_id, logits[token_id], 0.0f });
-      }
-
-      llama_token_data_array candidates_p = { candidates.data(), candidates.size(), false };
-      const llama_token new_token_id = llama_sample_token_greedy(ctx, &candidates_p);
-
-      if (llama_token_is_eog(model, new_token_id) || n_cur == max_tokens) {
-        break;
-      }
+    while (n_cur < params.max_tokens) {
+      llama_token new_token_id = SampleToken(params);
+      if (llama_token_is_eog(model, new_token_id)) break;
 
       result += llama_token_to_piece(ctx, new_token_id);
       llama_batch_clear(batch);
       llama_batch_add(batch, new_token_id, n_cur, { 0 }, true);
       n_cur += 1;
 
-      if (llama_decode(ctx, batch)) {
+      if (llama_decode(ctx, batch) != 0) {
         throw std::runtime_error("Failed to evaluate");
       }
     }
@@ -93,45 +90,22 @@ class LlamaWrapper::Impl {
     return result;
   }
 
-  void RunQueryStream(const std::string& prompt, size_t max_tokens, const std::function<void(const std::string&)>& callback) const {
-    if (!ctx || !model) throw std::runtime_error("Model not initialized");
+  void RunQueryStream(const std::string& prompt, const SamplingParams& params, const std::function<void(const std::string&)>& callback, bool add_bos = true) const {
+    std::vector<llama_token> tokens = Encode(prompt, add_bos);
 
-    std::vector<llama_token> tokens_list = llama_tokenize(ctx, prompt, true);
-    if (tokens_list.size() + max_tokens > llama_n_ctx(ctx)) {
-      throw std::runtime_error("Request exceeds model's context size");
+    llama_batch batch = llama_batch_init(params.max_tokens, 0, 1);
+    for (size_t i = 0; i < tokens.size(); ++i) {
+      llama_batch_add(batch, tokens[i], i, { 0 }, false);
     }
 
-    llama_batch batch = llama_batch_init(512, 0, 1);
-    for (size_t i = 0; i < tokens_list.size(); ++i) {
-      llama_batch_add(batch, tokens_list[i], i, { 0 }, false);
-    }
-
-    batch.logits[batch.n_tokens - 1] = true;  // Ensure logits for last token
     if (llama_decode(ctx, batch) != 0) {
       throw std::runtime_error("llama_decode() failed");
     }
 
     size_t n_cur = batch.n_tokens;
-
-    while (n_cur < max_tokens) {
-      auto n_vocab = llama_n_vocab(model);
-      auto* logits = llama_get_logits_ith(ctx, batch.n_tokens - 1);
-      if (!logits) {
-        throw std::runtime_error("Failed to get logits");
-      }
-
-      std::vector<llama_token_data> candidates;
-      candidates.reserve(n_vocab);
-      for (llama_token token_id = 0; token_id < n_vocab; ++token_id) {
-        candidates.emplace_back(llama_token_data{ token_id, logits[token_id], 0.0f });
-      }
-
-      llama_token_data_array candidates_p = { candidates.data(), candidates.size(), false };
-      const llama_token new_token_id = llama_sample_token_greedy(ctx, &candidates_p);
-
-      if (llama_token_is_eog(model, new_token_id) || n_cur == max_tokens) {
-        break;
-      }
+    while (n_cur < params.max_tokens) {
+      llama_token new_token_id = SampleToken(params);
+      if (llama_token_is_eog(model, new_token_id)) break;
 
       std::string piece = llama_token_to_piece(ctx, new_token_id);
       callback(piece);
@@ -140,7 +114,7 @@ class LlamaWrapper::Impl {
       llama_batch_add(batch, new_token_id, n_cur, { 0 }, true);
       n_cur += 1;
 
-      if (llama_decode(ctx, batch)) {
+      if (llama_decode(ctx, batch) != 0) {
         throw std::runtime_error("Failed to evaluate");
       }
     }
@@ -151,19 +125,68 @@ class LlamaWrapper::Impl {
  private:
   llama_model* model = nullptr;
   llama_context* ctx = nullptr;
+
+  llama_token SampleToken(const SamplingParams& params) const {
+    auto logits = llama_get_logits(ctx);
+    auto n_vocab = llama_n_vocab(model);
+
+    std::vector<llama_token_data> candidates;
+    candidates.reserve(n_vocab);
+
+    for (llama_token token_id = 0; token_id < n_vocab; token_id++) {
+      candidates.emplace_back(llama_token_data{ token_id, logits[token_id], 0.0f });
+    }
+
+    llama_token_data_array candidates_p = { candidates.data(), candidates.size(), false };
+
+    if (!params.repeat_penalty_tokens.empty()) {
+      llama_sample_repetition_penalties(
+          ctx,
+          &candidates_p,
+          params.repeat_penalty_tokens.data(),
+          params.repeat_penalty_tokens.size(),
+          params.repeat_penalty,
+          params.frequency_penalty,
+          params.presence_penalty
+      );
+    }
+
+    llama_sample_top_k(ctx, &candidates_p, params.top_k, 1);
+    llama_sample_top_p(ctx, &candidates_p, params.top_p, 1);
+    llama_sample_temp(ctx, &candidates_p, params.temperature);
+
+    return llama_sample_token(ctx, &candidates_p);
+  }
 };
 
+// Implement LlamaWrapper methods
 LlamaWrapper::LlamaWrapper() : pimpl(std::make_unique<Impl>()) {}
 LlamaWrapper::~LlamaWrapper() = default;
 
-bool LlamaWrapper::Initialize(const std::string& model_path, size_t context_size) {
-  return pimpl->Initialize(model_path, context_size);
+bool LlamaWrapper::InitializeModel(const std::string& model_path, const ModelParams& params) {
+  return pimpl->InitializeModel(model_path, params);
 }
 
-std::string LlamaWrapper::RunQuery(const std::string& prompt, size_t max_tokens) const {
-  return pimpl->RunQuery(prompt, max_tokens);
+bool LlamaWrapper::InitializeContext(const ContextParams& params) {
+  return pimpl->InitializeContext(params);
 }
 
-void LlamaWrapper::RunQueryStream(const std::string& prompt, size_t max_tokens, const std::function<void(const std::string&)>& callback) const {
-  pimpl->RunQueryStream(prompt, max_tokens, callback);
+std::vector<llama_token> LlamaWrapper::Encode(const std::string& text, bool add_bos) const {
+  return pimpl->Encode(text, add_bos);
+}
+
+std::string LlamaWrapper::Decode(const std::vector<llama_token>& tokens) const {
+  return pimpl->Decode(tokens);
+}
+
+llama_token LlamaWrapper::TokenBos() const { return pimpl->TokenBos(); }
+llama_token LlamaWrapper::TokenEos() const { return pimpl->TokenEos(); }
+llama_token LlamaWrapper::TokenNl() const { return pimpl->TokenNl(); }
+
+std::string LlamaWrapper::RunQuery(const std::string& prompt, const SamplingParams& params, bool add_bos) const {
+  return pimpl->RunQuery(prompt, params, add_bos);
+}
+
+void LlamaWrapper::RunQueryStream(const std::string& prompt, const SamplingParams& params, const std::function<void(const std::string&)>& callback, bool add_bos) const {
+  pimpl->RunQueryStream(prompt, params, callback, add_bos);
 }
