@@ -27,11 +27,11 @@ struct ContextParams {
 
 struct SamplingParams {
   size_t maxTokens = 1000;
-  float temperature = 0.8f;
+  float temperature = 1.0f;
   int32_t topK = 45;
   float topP = 0.95f;
-  float repeatPenalty = 1.1f;
-  float frequencyPenalty = 0.0f;
+  float repeatPenalty = 1.0f;
+  float frequencyPenalty = 1.0f;
   float presencePenalty = 0.0f;
   std::vector<LlamaToken> repeatPenaltyTokens;
 };
@@ -53,7 +53,7 @@ class LlamaChat {
   void ResetConversation();
 
   void Prompt(
-      const std::string& userMessage, const SamplingParams& params,
+      const std::string& userMessage,
       const std::function<void(const std::string&)>& callback
   );
 

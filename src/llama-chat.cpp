@@ -90,11 +90,11 @@ class LlamaChat::Impl {
   }
 
   void Prompt(
-      const std::string& userMessage, const SamplingParams& params,
+      const std::string& userMessage,
       const std::function<void(const std::string&)>& callback
   ) {
     AddUserMessage(userMessage);
-    RunQueryStream(params, [this, &callback](const std::string& piece) {
+    RunQueryStream([this, &callback](const std::string& piece) {
       callback(piece);
     });
   }
@@ -218,13 +218,11 @@ class LlamaChat::Impl {
     //    }
   }
 
-  void RunQueryStream(
-      const SamplingParams& params,
-      const std::function<void(const std::string&)>& callback
-  ) {
+  void RunQueryStream(const std::function<void(const std::string&)>& callback) {
     std::string prompt;
     BuildPrompt(prompt);
 
+    SamplingParams params;
     auto tokens = Encode(prompt, false, true);
 
     llama_batch batch = llama_batch_init(params.maxTokens, 0, 1);
@@ -296,10 +294,10 @@ void LlamaChat::SetSystemPrompt(const std::string& systemPrompt) {
 void LlamaChat::ResetConversation() { pimpl->ResetConversation(); }
 
 void LlamaChat::Prompt(
-    const std::string& userMessage, const SamplingParams& params,
+    const std::string& userMessage,
     const std::function<void(const std::string&)>& callback
 ) {
-  return pimpl->Prompt(userMessage, params, callback);
+  return pimpl->Prompt(userMessage, callback);
 }
 
 std::vector<LlamaToken> LlamaChat::Encode(const std::string& text, bool addBos)
