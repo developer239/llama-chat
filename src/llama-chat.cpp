@@ -95,9 +95,7 @@ class LlamaChat::Impl {
   ) {
     AddUserMessage(userMessage);
     RunQueryStream(params, [this, &callback](const std::string& piece) {
-      if (!IsSpecialToken(piece)) {
-        callback(piece);
-      }
+      callback(piece);
     });
   }
 
@@ -213,11 +211,9 @@ class LlamaChat::Impl {
       std::string piece = llama_token_to_piece(ctx.get(), new_token.tokenId);
       currentPiece += piece;
 
-      if (!IsSpecialToken(currentPiece) && !currentPiece.empty()) {
-        callback(currentPiece);
-        assistantResponse += currentPiece;
-        currentPiece.clear();
-      }
+      callback(currentPiece);
+      assistantResponse += currentPiece;
+      currentPiece.clear();
 
       llama_batch_clear(batch);
       llama_batch_add(batch, new_token.tokenId, nCur, {0}, true);
@@ -230,19 +226,6 @@ class LlamaChat::Impl {
 
     llama_batch_free(batch);
     conversationHistory.push_back({"assistant", assistantResponse});
-  }
-
-  bool IsSpecialToken(const std::string& piece) const {
-    std::vector<std::string> specialTokens = {
-        "<|begin_of_text|>", "<|end_of_text|>", "<|start_header_id|>",
-        "<|end_header_id|>", "<|eot_id|>"
-    };
-    for (const auto& token : specialTokens) {
-      if (piece.find(token) != std::string::npos) {
-        return true;
-      }
-    }
-    return false;
   }
 };
 
