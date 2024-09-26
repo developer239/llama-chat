@@ -52,14 +52,19 @@ class LlamaWrapper {
 
   bool InitializeContext(const ContextParams& params);
 
-  [[nodiscard]] std::vector<LlamaToken> Encode(
-      const std::string& text, bool addBos = true
-  ) const;
+  void SetSystemPrompt(const std::string& systemPrompt);
+
+  void AddUserMessage(const std::string& message);
+
+  void ResetConversation();
 
   void RunQueryStream(
-      const std::string& prompt, const SamplingParams& params,
-      const std::function<void(const std::string&)>& callback,
-      bool addBos
+      const SamplingParams& params,
+      const std::function<void(const std::string&)>& callback
+  );
+
+  [[nodiscard]] std::vector<LlamaToken> Encode(
+      const std::string& text, bool addBos = true
   ) const;
 
  private:

@@ -12,7 +12,6 @@ class LlamaWrapper::Impl {
   Impl() { llama_backend_init(); }
 
   ~Impl() {
-    // Smart pointers with custom deleters handle cleanup
     llama_backend_free();
   }
 
@@ -49,7 +48,8 @@ class LlamaWrapper::Impl {
     }
 
     // Get the token ID for <|eot_id|>
-    auto eot_tokens = Encode("<|eot_id|>", false, true);  // Set parseSpecial to true
+    auto eot_tokens =
+        Encode("<|eot_id|>", false, true);
     if (eot_tokens.size() != 1) {
       std::cerr << "Failed to retrieve <|eot_id|> token ID." << std::endl;
       return false;
@@ -74,7 +74,7 @@ class LlamaWrapper::Impl {
         llamaTokens.data(),
         maxTokens,
         addBos,
-        parseSpecial  // Pass the parseSpecial parameter here
+        parseSpecial
     );
 
     if (nTokens < 0) {
@@ -96,12 +96,13 @@ class LlamaWrapper::Impl {
   }
 
   void RunQueryStream(
-      const std::string& prompt, const SamplingParams& params,
-      const std::function<void(const std::string&)>& callback,
-      bool addBos
-  ) const {
-    // Tokenize the prompt with parseSpecial set to true
-    auto tokens = Encode(prompt, addBos, true);
+      const SamplingParams& params,
+      const std::function<void(const std::string&)>& callback
+  ) {
+    std::string prompt;
+    BuildPrompt(prompt);
+
+    auto tokens = Encode(prompt, false, true);
 
     // Initialize the batch
     llama_batch batch = llama_batch_init(params.maxTokens, 0, 1);
@@ -114,6 +115,8 @@ class LlamaWrapper::Impl {
     }
 
     size_t nCur = batch.n_tokens;
+    std::string assistantResponse;
+
     while (nCur < params.maxTokens) {
       auto new_token = SampleToken(params);
 
@@ -121,6 +124,7 @@ class LlamaWrapper::Impl {
       if (new_token.tokenId == eotToken) break;
 
       std::string piece = llama_token_to_piece(ctx.get(), new_token.tokenId);
+      assistantResponse += piece;  // Collect assistant's response
       callback(piece);
 
       llama_batch_clear(batch);
@@ -133,10 +137,27 @@ class LlamaWrapper::Impl {
     }
 
     llama_batch_free(batch);
+
+    conversationHistory.push_back({"assistant", assistantResponse});
   }
 
+  struct Message {
+    std::string role;  // "system", "user", "assistant"
+    std::string content;
+  };
+
+  void SetSystemPrompt(const std::string& systemPrompt) {
+    conversationHistory.clear();
+    conversationHistory.push_back({"system", systemPrompt});
+  }
+
+  void AddUserMessage(const std::string& message) {
+    conversationHistory.push_back({"user", message});
+  }
+
+  void ResetConversation() { conversationHistory.clear(); }
+
  private:
-  // Custom deleters for smart pointers
   struct LlamaModelDeleter {
     void operator()(llama_model* model) const { llama_free_model(model); }
   };
@@ -145,10 +166,26 @@ class LlamaWrapper::Impl {
     void operator()(llama_context* ctx) const { llama_free(ctx); }
   };
 
+  std::vector<Message> conversationHistory;
+
   std::unique_ptr<llama_model, LlamaModelDeleter> model = nullptr;
   std::unique_ptr<llama_context, LlamaContextDeleter> ctx = nullptr;
 
   llama_token eotToken;
+
+  void BuildPrompt(std::string& prompt) const {
+    std::ostringstream oss;
+    oss << "<|begin_of_text|>";
+
+    for (const auto& msg : conversationHistory) {
+      oss << "<|start_header_id|>" << msg.role << "<|end_header_id|>"
+          << msg.content << "<|eot_id|>";
+    }
+
+    oss << "<|start_header_id|>assistant<|end_header_id|>";
+
+    prompt = oss.str();
+  }
 
   [[nodiscard]] LlamaToken SampleToken(const SamplingParams& params) const {
     const float* logits = llama_get_logits(ctx.get());
@@ -215,15 +252,21 @@ bool LlamaWrapper::InitializeContext(const ContextParams& params) {
   }
 }
 
-std::vector<LlamaToken> LlamaWrapper::Encode(
-    const std::string& text, bool addBos
-) const {
-  return pimpl->Encode(text, addBos);
+void LlamaWrapper::SetSystemPrompt(const std::string& systemPrompt) {
+  pimpl->SetSystemPrompt(systemPrompt);
+}
+
+void LlamaWrapper::AddUserMessage(const std::string& message) {
+  pimpl->AddUserMessage(message);
+}
+
+void LlamaWrapper::ResetConversation() {
+  pimpl->ResetConversation();
 }
 
 void LlamaWrapper::RunQueryStream(
-    const std::string& prompt, const SamplingParams& params,
-    const std::function<void(const std::string&)>& callback, bool addBos
-) const {
-  pimpl->RunQueryStream(prompt, params, callback, addBos);
+    const SamplingParams& params,
+    const std::function<void(const std::string&)>& callback
+) {
+  pimpl->RunQueryStream(params, callback);
 }
