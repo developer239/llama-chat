@@ -57,11 +57,9 @@ class LlamaWrapper {
   ) const;
 
   void RunQueryStream(
-      const std::string& systemPrompt,
-      const std::vector<std::pair<std::string, std::string>>&
-          conversationHistory,
-      const SamplingParams& params,
-      const std::function<void(const std::string&)>& callback
+      const std::string& prompt, const SamplingParams& params,
+      const std::function<void(const std::string&)>& callback,
+      bool addBos
   ) const;
 
  private:

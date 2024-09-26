@@ -1,17 +1,20 @@
 #include "llama-wrapper.h"
 
 #include <iostream>
-#include <map>
 #include <stdexcept>
 #include <vector>
 
 #include "common.h"
+#include "llama.h"
 
 class LlamaWrapper::Impl {
  public:
   Impl() { llama_backend_init(); }
 
-  ~Impl() { llama_backend_free(); }
+  ~Impl() {
+    // Smart pointers with custom deleters handle cleanup
+    llama_backend_free();
+  }
 
   bool InitializeModel(
       const std::string& model_path, const ModelParams& params
@@ -45,13 +48,19 @@ class LlamaWrapper::Impl {
       return false;
     }
 
-    InitializeSpecialTokens();
+    // Get the token ID for <|eot_id|>
+    auto eot_tokens = Encode("<|eot_id|>", false, true);  // Set parseSpecial to true
+    if (eot_tokens.size() != 1) {
+      std::cerr << "Failed to retrieve <|eot_id|> token ID." << std::endl;
+      return false;
+    }
+    eotToken = eot_tokens[0].tokenId;
 
     return true;
   }
 
   [[nodiscard]] std::vector<LlamaToken> Encode(
-      const std::string& text, bool addBos
+      const std::string& text, bool addBos, bool parseSpecial = false
   ) const {
     // Estimate the maximum number of tokens
     int maxTokens = text.length() + (addBos ? 1 : 0);
@@ -65,7 +74,7 @@ class LlamaWrapper::Impl {
         llamaTokens.data(),
         maxTokens,
         addBos,
-        false
+        parseSpecial  // Pass the parseSpecial parameter here
     );
 
     if (nTokens < 0) {
@@ -87,29 +96,12 @@ class LlamaWrapper::Impl {
   }
 
   void RunQueryStream(
-      const std::string& systemPrompt,
-      const std::vector<std::pair<std::string, std::string>>& conversationHistory,
-      const SamplingParams& params,
-      const std::function<void(const std::string&)>& callback
+      const std::string& prompt, const SamplingParams& params,
+      const std::function<void(const std::string&)>& callback,
+      bool addBos
   ) const {
-    // Build the full prompt from system prompt and conversation history
-    std::string fullPrompt = systemPrompt + "\n\n";
-    for (const auto& [role, message] : conversationHistory) {
-      if (role == "user") {
-        fullPrompt += "User: " + message + "\n";
-      } else if (role == "assistant") {
-        fullPrompt += "Assistant: " + message + "\n";
-      }
-    }
-    fullPrompt += "Assistant: ";
-
-    // Tokenize the prompt
-    auto tokens = Encode(fullPrompt, true);
-
-    if (tokens.empty()) {
-      std::cerr << "Tokenization of the prompt failed." << std::endl;
-      return;
-    }
+    // Tokenize the prompt with parseSpecial set to true
+    auto tokens = Encode(prompt, addBos, true);
 
     // Initialize the batch
     llama_batch batch = llama_batch_init(params.maxTokens, 0, 1);
@@ -118,50 +110,25 @@ class LlamaWrapper::Impl {
     }
 
     if (llama_decode(ctx.get(), batch) != 0) {
-      std::cerr << "llama_decode() failed" << std::endl;
-      return;
+      throw std::runtime_error("llama_decode() failed");
     }
 
     size_t nCur = batch.n_tokens;
-    std::string generatedText;
-    bool stopGeneration = false;
+    while (nCur < params.maxTokens) {
+      auto new_token = SampleToken(params);
 
-    while (nCur < params.maxTokens && !stopGeneration) {
-      auto newToken = SampleToken(params);
-      if (newToken.tokenId == llama_token_eos(model.get())) {
-        break;
-      }
+      // Check if the generated token is <|eot_id|>
+      if (new_token.tokenId == eotToken) break;
 
-      std::string piece = llama_token_to_piece(
-          ctx.get(),
-          newToken.tokenId,
-          /*special=*/false  // Exclude special tokens in output
-      );
-
-      generatedText += piece;
-
-      // Check for stop conditions
-      if (generatedText.find("\nUser:") != std::string::npos ||
-          generatedText.find("\nAssistant:") != std::string::npos) {
-        // Remove the stop sequence from the output
-        size_t pos = generatedText.find("\nUser:");
-        if (pos == std::string::npos) {
-          pos = generatedText.find("\nAssistant:");
-        }
-        generatedText = generatedText.substr(0, pos);
-        stopGeneration = true;
-      } else {
-        // Output the piece to the callback
-        callback(piece);
-      }
+      std::string piece = llama_token_to_piece(ctx.get(), new_token.tokenId);
+      callback(piece);
 
       llama_batch_clear(batch);
-      llama_batch_add(batch, newToken.tokenId, nCur, {0}, true);
+      llama_batch_add(batch, new_token.tokenId, nCur, {0}, true);
       nCur += 1;
 
       if (llama_decode(ctx.get(), batch) != 0) {
-        std::cerr << "Failed to evaluate" << std::endl;
-        return;
+        throw std::runtime_error("Failed to evaluate");
       }
     }
 
@@ -169,6 +136,7 @@ class LlamaWrapper::Impl {
   }
 
  private:
+  // Custom deleters for smart pointers
   struct LlamaModelDeleter {
     void operator()(llama_model* model) const { llama_free_model(model); }
   };
@@ -180,13 +148,7 @@ class LlamaWrapper::Impl {
   std::unique_ptr<llama_model, LlamaModelDeleter> model = nullptr;
   std::unique_ptr<llama_context, LlamaContextDeleter> ctx = nullptr;
 
-  std::map<std::string, llama_token> specialTokenIds;
-
-  void InitializeSpecialTokens() {
-    specialTokenIds["bos"] = llama_token_bos(model.get());
-    specialTokenIds["eos"] = llama_token_eos(model.get());
-    specialTokenIds["nl"] = llama_token_nl(model.get());
-  }
+  llama_token eotToken;
 
   [[nodiscard]] LlamaToken SampleToken(const SamplingParams& params) const {
     const float* logits = llama_get_logits(ctx.get());
@@ -207,7 +169,6 @@ class LlamaWrapper::Impl {
 
     if (!params.repeatPenaltyTokens.empty()) {
       std::vector<llama_token> penaltyTokens;
-      penaltyTokens.reserve(params.repeatPenaltyTokens.size());
       for (const auto& token : params.repeatPenaltyTokens) {
         penaltyTokens.push_back(token.tokenId);
       }
@@ -261,10 +222,8 @@ std::vector<LlamaToken> LlamaWrapper::Encode(
 }
 
 void LlamaWrapper::RunQueryStream(
-    const std::string& systemPrompt,
-    const std::vector<std::pair<std::string, std::string>>& conversationHistory,
-    const SamplingParams& params,
-    const std::function<void(const std::string&)>& callback
+    const std::string& prompt, const SamplingParams& params,
+    const std::function<void(const std::string&)>& callback, bool addBos
 ) const {
-  pimpl->RunQueryStream(systemPrompt, conversationHistory, params, callback);
+  pimpl->RunQueryStream(prompt, params, callback, addBos);
 }
