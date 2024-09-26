@@ -128,10 +128,35 @@ class LlamaChat::Impl {
   void BuildPrompt(std::string& prompt) const {
     std::ostringstream oss;
     oss << "<|begin_of_text|>";
+
+    // Add system prompt first
     for (const auto& msg : conversationHistory) {
-      oss << "<|start_header_id|>" << msg.role << "<|end_header_id|>"
-          << msg.content << "<|eot_id|>";
+      if (msg.role == "system") {
+        oss << "<|start_header_id|>" << msg.role << "<|end_header_id|>"
+            << msg.content << "<|eot_id|>";
+        break;  // Assume there's only one system message
+      }
     }
+
+    // Add user and assistant messages in order
+    size_t totalTokens = 0;
+    const size_t maxTokens =
+        1024;  // Adjust this based on your model's context size
+    for (auto it = conversationHistory.begin(); it != conversationHistory.end();
+         ++it) {
+      if (it->role != "system") {
+        std::string messageContent = "<|start_header_id|>" + it->role +
+                                     "<|end_header_id|>" + it->content +
+                                     "<|eot_id|>";
+        auto tokens = Encode(messageContent, false);
+        if (totalTokens + tokens.size() > maxTokens) {
+          break;
+        }
+        oss << messageContent;
+        totalTokens += tokens.size();
+      }
+    }
+
     oss << "<|start_header_id|>assistant<|end_header_id|>";
     prompt = oss.str();
   }
@@ -179,6 +204,14 @@ class LlamaChat::Impl {
 
   void AddUserMessage(const std::string& message) {
     conversationHistory.push_back({"user", message});
+
+    // Limit the conversation history size
+    //    const size_t maxHistorySize = 10;
+    //    if (conversationHistory.size() > maxHistorySize + 1) {
+    //      conversationHistory.erase(conversationHistory.begin() + 1,
+    //                                conversationHistory.end() -
+    //                                maxHistorySize);
+    //    }
   }
 
   void RunQueryStream(
