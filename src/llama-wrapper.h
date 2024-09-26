@@ -1,42 +1,38 @@
-// llama-wrapper.h
 #pragma once
 
-#include <string>
-#include <memory>
 #include <functional>
+#include <memory>
+#include <string>
 #include <vector>
 
 struct LlamaToken {
-  int token_id;
+  int tokenId;
 
-  LlamaToken(int id = 0) : token_id(id) {}
+  explicit LlamaToken(int id = 0) : tokenId(id) {}
 };
 
-
 struct ModelParams {
-  int n_gpu_layers = 0;
-  bool vocab_only = false;
-  bool use_mmap = true;
-  bool use_mlock = false;
+  int nGpuLayers = 0;
+  bool vocabularyOnly = false;
+  bool useMemoryMapping = true;
+  bool useModelLock = false;
 };
 
 struct ContextParams {
-  size_t n_ctx = 4096;
-  int n_threads = 6;
-  int n_batch = 512;
-  bool logits_all = false;
-  bool embedding = false;
+  size_t nContext = 4096;
+  int nThreads = 6;
+  int nBatch = 512;
 };
 
 struct SamplingParams {
-  size_t max_tokens = 1000;
+  size_t maxTokens = 1000;
   float temperature = 0.8f;
-  int32_t top_k = 45;
-  float top_p = 0.95f;
-  float repeat_penalty = 1.1f;
-  float frequency_penalty = 0.0f;
-  float presence_penalty = 0.0f;
-  std::vector<LlamaToken> repeat_penalty_tokens;
+  int32_t topK = 45;
+  float topP = 0.95f;
+  float repeatPenalty = 1.1f;
+  float frequencyPenalty = 0.0f;
+  float presencePenalty = 0.0f;
+  std::vector<LlamaToken> repeatPenaltyTokens;
 };
 
 class LlamaWrapper {
@@ -50,22 +46,23 @@ class LlamaWrapper {
   LlamaWrapper(LlamaWrapper&&) noexcept = default;
   LlamaWrapper& operator=(LlamaWrapper&&) noexcept = default;
 
-  // Model Initialization
-  bool InitializeModel(const std::string& model_path, const ModelParams& params);
+  bool InitializeModel(const std::string& modelPath, const ModelParams& params);
 
-  // Context Initialization
   bool InitializeContext(const ContextParams& params);
 
-  // Tokenization and Encoding
-  std::vector<LlamaToken> Encode(const std::string& text, bool add_bos = true) const;
-  std::string Decode(const std::vector<LlamaToken>& tokens) const;
-  LlamaToken TokenBos() const;
-  LlamaToken TokenEos() const;
-  LlamaToken TokenNl() const;
+  [[nodiscard]] std::vector<LlamaToken> Encode(
+      const std::string& text, bool addBos = true
+  ) const;
+  [[nodiscard]] std::string Decode(const std::vector<LlamaToken>& tokens) const;
+  [[nodiscard]] LlamaToken TokenBos() const;
+  [[nodiscard]] LlamaToken TokenEos() const;
+  [[nodiscard]] LlamaToken TokenNl() const;
 
-  // Evaluation and Sampling
-  std::string RunQuery(const std::string& prompt, const SamplingParams& params, bool add_bos = true) const;
-  void RunQueryStream(const std::string& prompt, const SamplingParams& params, const std::function<void(const std::string&)>& callback, bool add_bos = true) const;
+  void RunQueryStream(
+      const std::string& systemPrompt, const std::string& userMessage,
+      const SamplingParams& params,
+      const std::function<void(const std::string&)>& callback
+  ) const;
 
  private:
   class Impl;
