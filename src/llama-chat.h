@@ -9,7 +9,6 @@ typedef int llama_token;
 
 struct LlamaToken {
   llama_token tokenId;
-
   explicit LlamaToken(llama_token id = 0) : tokenId(id) {}
 };
 
@@ -37,29 +36,24 @@ struct SamplingParams {
   std::vector<LlamaToken> repeatPenaltyTokens;
 };
 
-class LlamaWrapper {
+class LlamaChat {
  public:
-  LlamaWrapper();
-  ~LlamaWrapper();
+  LlamaChat();
+  ~LlamaChat();
 
-  LlamaWrapper(const LlamaWrapper&) = delete;
-  LlamaWrapper& operator=(const LlamaWrapper&) = delete;
+  LlamaChat(const LlamaChat&) = delete;
+  LlamaChat& operator=(const LlamaChat&) = delete;
 
-  LlamaWrapper(LlamaWrapper&&) noexcept = default;
-  LlamaWrapper& operator=(LlamaWrapper&&) noexcept = default;
+  LlamaChat(LlamaChat&&) noexcept = default;
+  LlamaChat& operator=(LlamaChat&&) noexcept = default;
 
   bool InitializeModel(const std::string& modelPath, const ModelParams& params);
-
   bool InitializeContext(const ContextParams& params);
-
   void SetSystemPrompt(const std::string& systemPrompt);
-
-  void AddUserMessage(const std::string& message);
-
   void ResetConversation();
 
-  void RunQueryStream(
-      const SamplingParams& params,
+  void Prompt(
+      const std::string& userMessage, const SamplingParams& params,
       const std::function<void(const std::string&)>& callback
   );
 

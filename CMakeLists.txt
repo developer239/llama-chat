@@ -14,8 +14,8 @@ endif()
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/externals/llama.cpp)
 
 set(SOURCES
-        src/llama-wrapper.cpp
-        src/llama-wrapper.h
+        src/llama-chat.cpp
+        src/llama-chat.h
 )
 
 add_library(${LIB_NAME} STATIC ${SOURCES})
@@ -30,4 +30,4 @@ target_include_directories(${LIB_NAME}
 )
 
 install(TARGETS ${LIB_NAME} DESTINATION lib)
-install(FILES src/llama-wrapper.h DESTINATION include)
+install(FILES src/llama-chat.h DESTINATION include)
