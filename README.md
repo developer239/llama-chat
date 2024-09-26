@@ -1,6 +1,6 @@
 # LlamaChat 🦙🦙🦙
 
-LlamaChat is a C++ library designed for running language models using the [llama.cpp](https://github.com/your-org/llama.cpp) framework. It provides an easy-to-use interface for loading models, querying them, and streaming responses in C++ applications.
+LlamaChat is a C++ library designed for running language models using the [llama.cpp](https://github.com/ggerganov/llama.cpp) framework. It provides an easy-to-use interface for loading models, querying them, and streaming responses in C++ applications.
 
 **Supported Systems:**
 
@@ -15,7 +15,7 @@ LlamaChat is a C++ library designed for running language models using the [llama
 First, add this library as a submodule in your project:
 
 ```bash
-$ git submodule add https://github.com/developer239/llama-wrapped-cmake externals/llama-chat
+$ git submodule add https://github.com/developer239/llama-chat externals/llama-chat
 ```
 
 Load the module's dependencies:
