@@ -5,11 +5,12 @@
 #include <string>
 #include <vector>
 
-struct LlamaToken {
-  // TODO: this should most likely be llama_token
-  int tokenId;
+typedef int llama_token;
 
-  explicit LlamaToken(int id = 0) : tokenId(id) {}
+struct LlamaToken {
+  llama_token tokenId;
+
+  explicit LlamaToken(llama_token id = 0) : tokenId(id) {}
 };
 
 struct ModelParams {
@@ -55,14 +56,10 @@ class LlamaWrapper {
       const std::string& text, bool addBos = true
   ) const;
 
-  [[nodiscard]] std::string Decode(const std::vector<LlamaToken>& tokens) const;
-
-  [[nodiscard]] LlamaToken TokenBos() const;
-  [[nodiscard]] LlamaToken TokenEos() const;
-  [[nodiscard]] LlamaToken TokenNl() const;
-
   void RunQueryStream(
-      const std::string& systemPrompt, const std::string& userMessage,
+      const std::string& systemPrompt,
+      const std::vector<std::pair<std::string, std::string>>&
+          conversationHistory,
       const SamplingParams& params,
       const std::function<void(const std::string&)>& callback
   ) const;

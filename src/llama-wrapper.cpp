@@ -3,24 +3,15 @@
 #include <iostream>
 #include <map>
 #include <stdexcept>
+#include <vector>
 
 #include "common.h"
-#include "llama.h"
 
 class LlamaWrapper::Impl {
  public:
   Impl() { llama_backend_init(); }
 
-  ~Impl() {
-    if (ctx) {
-      llama_free(ctx);
-    }
-    if (model) {
-      llama_free_model(model);
-    }
-
-    llama_backend_free();
-  }
+  ~Impl() { llama_backend_free(); }
 
   bool InitializeModel(
       const std::string& model_path, const ModelParams& params
@@ -31,7 +22,7 @@ class LlamaWrapper::Impl {
     modelParams.use_mmap = params.useMemoryMapping;
     modelParams.use_mlock = params.useModelLock;
 
-    model = llama_load_model_from_file(model_path.c_str(), modelParams);
+    model.reset(llama_load_model_from_file(model_path.c_str(), modelParams));
     if (!model) {
       std::cerr << "Failed to load model from " << model_path << std::endl;
       return false;
@@ -48,7 +39,7 @@ class LlamaWrapper::Impl {
     ctxParams.logits_all = false;
     ctxParams.embeddings = false;
 
-    ctx = llama_new_context_with_model(model, ctxParams);
+    ctx.reset(llama_new_context_with_model(model.get(), ctxParams));
     if (!ctx) {
       std::cerr << "Failed to create the llama_context" << std::endl;
       return false;
@@ -68,13 +59,13 @@ class LlamaWrapper::Impl {
     std::vector<llama_token> llamaTokens(maxTokens);
 
     int nTokens = llama_tokenize(
-        model,
+        model.get(),
         text.c_str(),
         text.length(),
         llamaTokens.data(),
         maxTokens,
         addBos,
-        /*parse_special=*/false
+        false
     );
 
     if (nTokens < 0) {
@@ -95,40 +86,24 @@ class LlamaWrapper::Impl {
     return tokens;
   }
 
-  [[nodiscard]] std::string Decode(const std::vector<LlamaToken>& tokens
-  ) const {
-    std::string result;
-    for (const auto& token : tokens) {
-      result += llama_token_to_piece(
-          ctx,
-          token.tokenId,
-          // TODO: should add or not?
-          false
-      );
-    }
-    return result;
-  }
-
-  [[nodiscard]] LlamaToken TokenBos() const {
-    return LlamaToken(llama_token_bos(model));
-  }
-  [[nodiscard]] LlamaToken TokenEos() const {
-    return LlamaToken(llama_token_eos(model));
-  }
-  [[nodiscard]] LlamaToken TokenNl() const {
-    return LlamaToken(llama_token_nl(model));
-  }
-
   void RunQueryStream(
-      const std::string& systemPrompt, const std::string& userMessage,
+      const std::string& systemPrompt,
+      const std::vector<std::pair<std::string, std::string>>& conversationHistory,
       const SamplingParams& params,
       const std::function<void(const std::string&)>& callback
   ) const {
-    // Simplified prompt without unrecognized special tokens
-    std::string fullPrompt = "system\n" + systemPrompt + "\n" + "user\n" +
-                             userMessage + "\n" + "assistant";
+    // Build the full prompt from system prompt and conversation history
+    std::string fullPrompt = systemPrompt + "\n\n";
+    for (const auto& [role, message] : conversationHistory) {
+      if (role == "user") {
+        fullPrompt += "User: " + message + "\n";
+      } else if (role == "assistant") {
+        fullPrompt += "Assistant: " + message + "\n";
+      }
+    }
+    fullPrompt += "Assistant: ";
 
-    // Set 'addBos' to true to add the BOS token during tokenization
+    // Tokenize the prompt
     auto tokens = Encode(fullPrompt, true);
 
     if (tokens.empty()) {
@@ -136,36 +111,55 @@ class LlamaWrapper::Impl {
       return;
     }
 
+    // Initialize the batch
     llama_batch batch = llama_batch_init(params.maxTokens, 0, 1);
     for (size_t i = 0; i < tokens.size(); ++i) {
       llama_batch_add(batch, tokens[i].tokenId, i, {0}, false);
     }
 
-    if (llama_decode(ctx, batch) != 0) {
+    if (llama_decode(ctx.get(), batch) != 0) {
       std::cerr << "llama_decode() failed" << std::endl;
       return;
     }
 
     size_t nCur = batch.n_tokens;
-    while (nCur < params.maxTokens) {
+    std::string generatedText;
+    bool stopGeneration = false;
+
+    while (nCur < params.maxTokens && !stopGeneration) {
       auto newToken = SampleToken(params);
-      if (newToken.tokenId == llama_token_eos(model)) {
+      if (newToken.tokenId == llama_token_eos(model.get())) {
         break;
       }
 
       std::string piece = llama_token_to_piece(
-          ctx,
+          ctx.get(),
           newToken.tokenId,
-          // TODO: should add or not?
-          false
+          /*special=*/false  // Exclude special tokens in output
       );
-      callback(piece);
+
+      generatedText += piece;
+
+      // Check for stop conditions
+      if (generatedText.find("\nUser:") != std::string::npos ||
+          generatedText.find("\nAssistant:") != std::string::npos) {
+        // Remove the stop sequence from the output
+        size_t pos = generatedText.find("\nUser:");
+        if (pos == std::string::npos) {
+          pos = generatedText.find("\nAssistant:");
+        }
+        generatedText = generatedText.substr(0, pos);
+        stopGeneration = true;
+      } else {
+        // Output the piece to the callback
+        callback(piece);
+      }
 
       llama_batch_clear(batch);
       llama_batch_add(batch, newToken.tokenId, nCur, {0}, true);
       nCur += 1;
 
-      if (llama_decode(ctx, batch) != 0) {
+      if (llama_decode(ctx.get(), batch) != 0) {
         std::cerr << "Failed to evaluate" << std::endl;
         return;
       }
@@ -175,21 +169,28 @@ class LlamaWrapper::Impl {
   }
 
  private:
-  llama_model* model = nullptr;
-  llama_context* ctx = nullptr;
+  struct LlamaModelDeleter {
+    void operator()(llama_model* model) const { llama_free_model(model); }
+  };
+
+  struct LlamaContextDeleter {
+    void operator()(llama_context* ctx) const { llama_free(ctx); }
+  };
+
+  std::unique_ptr<llama_model, LlamaModelDeleter> model = nullptr;
+  std::unique_ptr<llama_context, LlamaContextDeleter> ctx = nullptr;
 
   std::map<std::string, llama_token> specialTokenIds;
 
   void InitializeSpecialTokens() {
-    specialTokenIds["bos"] = llama_token_bos(model);
-    specialTokenIds["eos"] = llama_token_eos(model);
-    specialTokenIds["nl"] = llama_token_nl(model);
-    // Add other tokens if they are available
+    specialTokenIds["bos"] = llama_token_bos(model.get());
+    specialTokenIds["eos"] = llama_token_eos(model.get());
+    specialTokenIds["nl"] = llama_token_nl(model.get());
   }
 
   [[nodiscard]] LlamaToken SampleToken(const SamplingParams& params) const {
-    const float* logits = llama_get_logits(ctx);
-    const int nVocabulary = llama_n_vocab(model);
+    const float* logits = llama_get_logits(ctx.get());
+    const int nVocabulary = llama_n_vocab(model.get());
 
     std::vector<llama_token_data> candidates;
     candidates.reserve(nVocabulary);
@@ -206,12 +207,13 @@ class LlamaWrapper::Impl {
 
     if (!params.repeatPenaltyTokens.empty()) {
       std::vector<llama_token> penaltyTokens;
+      penaltyTokens.reserve(params.repeatPenaltyTokens.size());
       for (const auto& token : params.repeatPenaltyTokens) {
         penaltyTokens.push_back(token.tokenId);
       }
 
       llama_sample_repetition_penalties(
-          ctx,
+          ctx.get(),
           &candidatesP,
           penaltyTokens.data(),
           penaltyTokens.size(),
@@ -221,11 +223,11 @@ class LlamaWrapper::Impl {
       );
     }
 
-    llama_sample_top_k(ctx, &candidatesP, params.topK, 1);
-    llama_sample_top_p(ctx, &candidatesP, params.topP, 1);
-    llama_sample_temp(ctx, &candidatesP, params.temperature);
+    llama_sample_top_k(ctx.get(), &candidatesP, params.topK, 1);
+    llama_sample_top_p(ctx.get(), &candidatesP, params.topP, 1);
+    llama_sample_temp(ctx.get(), &candidatesP, params.temperature);
 
-    return LlamaToken(llama_sample_token(ctx, &candidatesP));
+    return LlamaToken(llama_sample_token(ctx.get(), &candidatesP));
   }
 };
 
@@ -258,18 +260,11 @@ std::vector<LlamaToken> LlamaWrapper::Encode(
   return pimpl->Encode(text, addBos);
 }
 
-std::string LlamaWrapper::Decode(const std::vector<LlamaToken>& tokens) const {
-  return pimpl->Decode(tokens);
-}
-
-LlamaToken LlamaWrapper::TokenBos() const { return pimpl->TokenBos(); }
-LlamaToken LlamaWrapper::TokenEos() const { return pimpl->TokenEos(); }
-LlamaToken LlamaWrapper::TokenNl() const { return pimpl->TokenNl(); }
-
 void LlamaWrapper::RunQueryStream(
-    const std::string& systemPrompt, const std::string& userMessage,
+    const std::string& systemPrompt,
+    const std::vector<std::pair<std::string, std::string>>& conversationHistory,
     const SamplingParams& params,
     const std::function<void(const std::string&)>& callback
 ) const {
-  pimpl->RunQueryStream(systemPrompt, userMessage, params, callback);
+  pimpl->RunQueryStream(systemPrompt, conversationHistory, params, callback);
 }
