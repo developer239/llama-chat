@@ -138,7 +138,6 @@ class LlamaChat::Impl {
       }
     }
 
-    // Add user and assistant messages in order
     size_t totalTokens = 0;
     const size_t maxTokens =
         1024;  // Adjust this based on your model's context size
@@ -158,9 +157,6 @@ class LlamaChat::Impl {
     }
 
     oss << "<|start_header_id|>assistant<|end_header_id|>";
-
-    // debug print the prompt
-    std::cout << "Prompt: " << oss.str() << std::endl;
 
     prompt = oss.str();
   }
@@ -207,15 +203,14 @@ class LlamaChat::Impl {
   }
 
   void AddUserMessage(const std::string& message) {
-    conversationHistory.push_back({"user", message});
+    // TODO: make configurable
+    const size_t maxHistorySize = 10;
 
-    // Limit the conversation history size
-    //    const size_t maxHistorySize = 10;
-    //    if (conversationHistory.size() > maxHistorySize + 1) {
-    //      conversationHistory.erase(conversationHistory.begin() + 1,
-    //                                conversationHistory.end() -
-    //                                maxHistorySize);
-    //    }
+    if (conversationHistory.size() >= maxHistorySize) {
+      conversationHistory.erase(conversationHistory.begin());
+    }
+
+    conversationHistory.push_back({"user", message});
   }
 
   void RunQueryStream(const std::function<void(const std::string&)>& callback) {
