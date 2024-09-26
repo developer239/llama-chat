@@ -104,7 +104,11 @@ class LlamaChat::Impl {
     conversationHistory.push_back({"system", systemPrompt});
   }
 
-  void ResetConversation() { conversationHistory.clear(); }
+  void ResetConversation() {
+    conversationHistory.clear();
+
+    llama_kv_cache_clear(ctx.get());
+  }
 
  private:
   struct LlamaModelDeleter {
