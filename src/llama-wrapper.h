@@ -6,6 +6,7 @@
 #include <vector>
 
 struct LlamaToken {
+  // TODO: this should most likely be llama_token
   int tokenId;
 
   explicit LlamaToken(int id = 0) : tokenId(id) {}
@@ -53,7 +54,9 @@ class LlamaWrapper {
   [[nodiscard]] std::vector<LlamaToken> Encode(
       const std::string& text, bool addBos = true
   ) const;
+
   [[nodiscard]] std::string Decode(const std::vector<LlamaToken>& tokens) const;
+
   [[nodiscard]] LlamaToken TokenBos() const;
   [[nodiscard]] LlamaToken TokenEos() const;
   [[nodiscard]] LlamaToken TokenNl() const;
