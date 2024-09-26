@@ -158,6 +158,10 @@ class LlamaChat::Impl {
     }
 
     oss << "<|start_header_id|>assistant<|end_header_id|>";
+
+    // debug print the prompt
+    std::cout << "Prompt: " << oss.str() << std::endl;
+
     prompt = oss.str();
   }
 
