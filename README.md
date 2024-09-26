@@ -1,4 +1,4 @@
-# LlamaCPP 🦙🦙
+# LlamaCPP 🦙🦙 [update]
 
 LlamaCPP is a C++ library designed for running language models using
 the [llama.cpp](https://github.com/your-org/llama.cpp) framework. It provides an easy-to-use interface for loading
